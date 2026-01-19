@@ -61,6 +61,7 @@ type Connection struct {
 
 	stopChan  chan struct{}
 	readyChan chan struct{}
+	stopOnce  sync.Once
 	manager   *Manager
 	mu        sync.RWMutex
 }
@@ -462,8 +463,10 @@ func (m *Manager) StopPortForward(id string) error {
 	conn.StoppedAt = time.Now()
 	conn.mu.Unlock()
 
-	// Close stop channel to signal forwarder to stop
-	close(conn.stopChan)
+	// Safely close stop channel using sync.Once to prevent panic on double close
+	conn.stopOnce.Do(func() {
+		close(conn.stopChan)
+	})
 
 	m.notifyChange()
 	return nil

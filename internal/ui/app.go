@@ -158,12 +158,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global keys
 		switch msg.String() {
 		case "ctrl+c", "q":
-			if m.view == ViewConnections {
-				m.pfManager.StopAll()
-				return m, tea.Quit
-			}
-			m.view = ViewConnections
-			return m, nil
+			// Always stop all connections before quitting
+			m.pfManager.StopAll()
+			return m, tea.Quit
 		case "esc":
 			return m.handleEsc()
 		}
