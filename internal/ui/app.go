@@ -158,7 +158,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global keys
 		switch msg.String() {
 		case "ctrl+c", "q":
-			// Always stop all connections before quitting
+			// Save state BEFORE stopping connections
+			saveSessionState(m.pfManager)
+			// Then stop all connections
 			m.pfManager.StopAll()
 			return m, tea.Quit
 		case "esc":
@@ -783,10 +785,6 @@ func Run(k8sClient *k8s.Client, pfManager *portforward.Manager, cfg *config.Conf
 	go restorePreviousSession(k8sClient, pfManager, p)
 
 	_, err := p.Run()
-	
-	// Save active connections before exit
-	saveSessionState(pfManager)
-	
 	return err
 }
 
