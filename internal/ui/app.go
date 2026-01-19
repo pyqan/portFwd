@@ -408,6 +408,18 @@ func (m Model) updateConnections(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.startPortForwardToPodAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort)
 			}
 		}
+	case "x", "delete", "backspace":
+		// Delete selected connection completely
+		if len(connections) > 0 && m.selectedConn < len(connections) {
+			conn := connections[m.selectedConn]
+			info := conn.GetConnectionInfo()
+			m.pfManager.DeleteConnection(info.ID)
+			// Adjust selection if needed
+			if m.selectedConn >= len(connections)-1 && m.selectedConn > 0 {
+				m.selectedConn--
+			}
+			return m, func() tea.Msg { return connectionsUpdated{} }
+		}
 	}
 	return m, nil
 }
@@ -832,15 +844,15 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 	}
 }
 
-// saveSessionState saves active connections to state file
+// saveSessionState saves all connections to state file
 func saveSessionState(pfManager *portforward.Manager) {
-	active := pfManager.GetActiveConnectionsForSave()
+	all := pfManager.GetAllConnectionsForSave()
 	
 	state := &config.SessionState{
-		Connections: make([]config.SavedConnection, len(active)),
+		Connections: make([]config.SavedConnection, len(all)),
 	}
 	
-	for i, conn := range active {
+	for i, conn := range all {
 		state.Connections[i] = config.SavedConnection{
 			Namespace:    conn.Namespace,
 			ResourceType: conn.ResourceType,

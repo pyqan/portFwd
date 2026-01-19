@@ -436,10 +436,10 @@ func RenderHelp(view string) string {
 	case "connections":
 		keys = []string{
 			HelpKeyStyle.Render("↑/↓") + HelpDescStyle.Render(" navigate"),
-			HelpKeyStyle.Render("n") + HelpDescStyle.Render(" new forward"),
-			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" disconnect"),
+			HelpKeyStyle.Render("n") + HelpDescStyle.Render(" new"),
+			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" stop"),
 			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" reconnect"),
-			HelpKeyStyle.Render("D") + HelpDescStyle.Render(" disconnect all"),
+			HelpKeyStyle.Render("x") + HelpDescStyle.Render(" delete"),
 		}
 	case "port_input":
 		keys = []string{

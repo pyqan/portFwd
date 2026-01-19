@@ -630,24 +630,52 @@ type SavedConnectionInfo struct {
 	RemotePort   int
 }
 
-// GetActiveConnectionsForSave returns active connections info for saving to state
-func (m *Manager) GetActiveConnectionsForSave() []SavedConnectionInfo {
+// GetAllConnectionsForSave returns all connections info for saving to state
+func (m *Manager) GetAllConnectionsForSave() []SavedConnectionInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	result := make([]SavedConnectionInfo, 0)
 	for _, conn := range m.connections {
 		conn.mu.RLock()
-		if conn.Status == StatusActive {
-			result = append(result, SavedConnectionInfo{
-				Namespace:    conn.Namespace,
-				ResourceType: string(conn.ResourceType),
-				ResourceName: conn.ResourceName,
-				LocalPort:    conn.LocalPort,
-				RemotePort:   conn.RemotePort,
-			})
-		}
+		result = append(result, SavedConnectionInfo{
+			Namespace:    conn.Namespace,
+			ResourceType: string(conn.ResourceType),
+			ResourceName: conn.ResourceName,
+			LocalPort:    conn.LocalPort,
+			RemotePort:   conn.RemotePort,
+		})
 		conn.mu.RUnlock()
 	}
 	return result
+}
+
+// DeleteConnection completely removes a connection from manager
+func (m *Manager) DeleteConnection(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	conn, ok := m.connections[id]
+	if !ok {
+		return fmt.Errorf("connection not found: %s", id)
+	}
+
+	// Stop if running
+	conn.mu.Lock()
+	if conn.Status == StatusActive || conn.Status == StatusStarting {
+		conn.Status = StatusStopped
+		conn.StoppedAt = time.Now()
+	}
+	conn.mu.Unlock()
+
+	if conn.cancelFunc != nil {
+		conn.cancelFunc()
+	}
+
+	conn.stopOnce.Do(func() {
+		close(conn.stopChan)
+	})
+
+	delete(m.connections, id)
+	return nil
 }
