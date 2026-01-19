@@ -440,6 +440,11 @@ func RenderHelp(view string) string {
 			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" stop"),
 			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" reconnect"),
 			HelpKeyStyle.Render("x") + HelpDescStyle.Render(" delete"),
+			HelpKeyStyle.Render("l") + HelpDescStyle.Render(" logs"),
+		}
+	case "logs":
+		keys = []string{
+			HelpKeyStyle.Render("esc") + HelpDescStyle.Render(" back"),
 		}
 	case "port_input":
 		keys = []string{

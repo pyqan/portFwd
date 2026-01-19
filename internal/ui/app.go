@@ -28,6 +28,7 @@ const (
 	ViewPortInput
 	ViewConnecting
 	ViewConfirm
+	ViewLogs
 )
 
 // ResourceType represents the type of resource to forward
@@ -96,6 +97,13 @@ type Model struct {
 	// Search/filter
 	searchMode  bool
 	searchQuery string
+
+	// Global log messages (last N events)
+	globalLogs    []string
+	maxGlobalLogs int
+	
+	// Viewing logs for specific connection
+	viewingLogsConnID string
 }
 
 // Messages
@@ -140,6 +148,17 @@ func NewModel(k8sClient *k8s.Client, pfManager *portforward.Manager, cfg *config
 		remotePortInput: remoteInput,
 		width:           80,
 		height:          24,
+		globalLogs:      make([]string, 0),
+		maxGlobalLogs:   5,
+	}
+}
+
+// addLog adds a message to the global log
+func (m *Model) addLog(msg string) {
+	timestamp := time.Now().Format("15:04:05")
+	m.globalLogs = append(m.globalLogs, fmt.Sprintf("[%s] %s", timestamp, msg))
+	if len(m.globalLogs) > m.maxGlobalLogs {
+		m.globalLogs = m.globalLogs[len(m.globalLogs)-m.maxGlobalLogs:]
 	}
 }
 
@@ -185,6 +204,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConnecting(msg)
 		case ViewConfirm:
 			return m.updateConfirm(msg)
+		case ViewLogs:
+			return m.updateLogs(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -313,6 +334,22 @@ func (m Model) renderContent(height int) string {
 	case ViewConfirm:
 		return RenderConfirmDialog(m.confirmTitle, m.confirmMessage, m.width/2)
 
+	case ViewLogs:
+		var logs []string
+		title := "Connection Logs"
+		if m.viewingLogsConnID != "" {
+			if conn, ok := m.pfManager.GetConnection(m.viewingLogsConnID); ok {
+				logs = conn.GetLogs()
+				info := conn.GetConnectionInfo()
+				resType := "pod"
+				if info.ResourceType == portforward.ResourceService {
+					resType = "svc"
+				}
+				title = fmt.Sprintf("Logs: %s/%s/%s", info.Namespace, resType, info.ResourceName)
+			}
+		}
+		return RenderLogWindow(logs, title, m.width-4, height-2)
+
 	default:
 		return ""
 	}
@@ -336,6 +373,8 @@ func (m Model) viewName() string {
 		return "connecting"
 	case ViewConfirm:
 		return "confirm"
+	case ViewLogs:
+		return "logs"
 	default:
 		return ""
 	}
@@ -353,6 +392,9 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 		m.view = m.prevView
 	case ViewConfirm:
 		m.view = m.prevView
+	case ViewLogs:
+		m.viewingLogsConnID = ""
+		m.view = ViewConnections
 	}
 	m.err = nil
 	m.message = ""
@@ -419,6 +461,13 @@ func (m Model) updateConnections(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.selectedConn--
 			}
 			return m, func() tea.Msg { return connectionsUpdated{} }
+		}
+	case "l":
+		// View logs for selected connection
+		if len(connections) > 0 && m.selectedConn < len(connections) {
+			conn := connections[m.selectedConn]
+			m.viewingLogsConnID = conn.GetConnectionInfo().ID
+			m.view = ViewLogs
 		}
 	}
 	return m, nil
@@ -650,6 +699,16 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "N":
 		m.view = m.prevView
 		m.confirmAction = nil
+	}
+	return m, nil
+}
+
+// Logs view handlers
+func (m Model) updateLogs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "l":
+		m.viewingLogsConnID = ""
+		m.view = ViewConnections
 	}
 	return m, nil
 }
