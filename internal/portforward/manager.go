@@ -59,11 +59,12 @@ type Connection struct {
 	ReconnectCount int
 	AutoReconnect  bool
 
-	stopChan  chan struct{}
-	readyChan chan struct{}
-	stopOnce  sync.Once
-	manager   *Manager
-	mu        sync.RWMutex
+	stopChan   chan struct{}
+	readyChan  chan struct{}
+	stopOnce   sync.Once
+	cancelFunc context.CancelFunc
+	manager    *Manager
+	mu         sync.RWMutex
 }
 
 // Manager manages multiple port-forward connections
@@ -142,8 +143,15 @@ func (m *Manager) startPortForward(ctx context.Context, namespace string, resour
 			m.mu.Unlock()
 			return nil, fmt.Errorf("port-forward already active for %s", id)
 		}
+		// Cancel existing connection if any
+		if existing.cancelFunc != nil {
+			existing.cancelFunc()
+		}
 		delete(m.connections, id)
 	}
+
+	// Create cancellable context for this connection
+	connCtx, cancelFunc := context.WithCancel(ctx)
 
 	conn := &Connection{
 		ID:            id,
@@ -159,6 +167,7 @@ func (m *Manager) startPortForward(ctx context.Context, namespace string, resour
 		manager:       m,
 		stopChan:      make(chan struct{}),
 		readyChan:     make(chan struct{}),
+		cancelFunc:    cancelFunc,
 	}
 
 	conn.AddLog("Starting port-forward...")
@@ -169,10 +178,10 @@ func (m *Manager) startPortForward(ctx context.Context, namespace string, resour
 	m.mu.Unlock()
 	m.notifyChange()
 
-	// Start port-forward in goroutine
+	// Start port-forward in goroutine with cancellable context
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- m.runPortForward(ctx, conn)
+		errChan <- m.runPortForward(connCtx, conn)
 	}()
 
 	// Wait for ready or error
@@ -401,25 +410,30 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 		return err
 	}
 
-	// Now wait for forward to complete (stop or error)
-	err = <-errChan
-	
-	conn.mu.Lock()
-	if conn.Status != StatusStopped {
-		if err != nil {
-			conn.Status = StatusError
-			conn.Error = err.Error()
-			conn.AddLog(fmt.Sprintf("✗ Forward error: %v", err))
-		} else {
-			conn.Status = StatusStopped
-			conn.AddLog("Port-forward stopped")
+	// Wait for forward to complete, stop signal, or context cancellation
+	select {
+	case err = <-errChan:
+		conn.mu.Lock()
+		if conn.Status != StatusStopped {
+			if err != nil {
+				conn.Status = StatusError
+				conn.Error = err.Error()
+				conn.AddLog(fmt.Sprintf("✗ Forward error: %v", err))
+			} else {
+				conn.Status = StatusStopped
+				conn.AddLog("Port-forward stopped")
+			}
+			conn.StoppedAt = time.Now()
 		}
-		conn.StoppedAt = time.Now()
+		conn.mu.Unlock()
+		m.notifyChange()
+		return err
+		
+	case <-ctx.Done():
+		// Context cancelled - exit immediately
+		conn.AddLog("Shutting down...")
+		return nil
 	}
-	conn.mu.Unlock()
-	m.notifyChange()
-
-	return err
 }
 
 // logWriter writes to connection logs
@@ -462,6 +476,11 @@ func (m *Manager) StopPortForward(id string) error {
 	conn.Status = StatusStopped
 	conn.StoppedAt = time.Now()
 	conn.mu.Unlock()
+
+	// Cancel the context to stop any blocking operations
+	if conn.cancelFunc != nil {
+		conn.cancelFunc()
+	}
 
 	// Safely close stop channel using sync.Once to prevent panic on double close
 	conn.stopOnce.Do(func() {
