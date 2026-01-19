@@ -620,3 +620,34 @@ func (c *Connection) GetConnectionInfo() ConnectionInfo {
 		Duration:     duration,
 	}
 }
+
+// SavedConnectionInfo represents connection info for saving
+type SavedConnectionInfo struct {
+	Namespace    string
+	ResourceType string
+	ResourceName string
+	LocalPort    int
+	RemotePort   int
+}
+
+// GetActiveConnectionsForSave returns active connections info for saving to state
+func (m *Manager) GetActiveConnectionsForSave() []SavedConnectionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]SavedConnectionInfo, 0)
+	for _, conn := range m.connections {
+		conn.mu.RLock()
+		if conn.Status == StatusActive {
+			result = append(result, SavedConnectionInfo{
+				Namespace:    conn.Namespace,
+				ResourceType: string(conn.ResourceType),
+				ResourceName: conn.ResourceName,
+				LocalPort:    conn.LocalPort,
+				RemotePort:   conn.RemotePort,
+			})
+		}
+		conn.mu.RUnlock()
+	}
+	return result
+}

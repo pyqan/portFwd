@@ -779,6 +779,78 @@ func Run(k8sClient *k8s.Client, pfManager *portforward.Manager, cfg *config.Conf
 		p.Send(connectionsUpdated{})
 	})
 
+	// Load and restore previous session
+	go restorePreviousSession(k8sClient, pfManager, p)
+
 	_, err := p.Run()
+	
+	// Save active connections before exit
+	saveSessionState(pfManager)
+	
 	return err
+}
+
+// restorePreviousSession loads and restores connections from previous session
+func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manager, p *tea.Program) {
+	state, err := config.LoadState()
+	if err != nil || len(state.Connections) == 0 {
+		return
+	}
+
+	ctx := context.Background()
+	restored := 0
+	
+	for _, saved := range state.Connections {
+		// Check if resource is available
+		available := false
+		
+		if saved.ResourceType == "service" {
+			_, err := k8sClient.GetService(ctx, saved.Namespace, saved.ResourceName)
+			available = err == nil
+		} else {
+			pod, err := k8sClient.GetPod(ctx, saved.Namespace, saved.ResourceName)
+			available = err == nil && pod.Status == "Running"
+		}
+		
+		if !available {
+			continue
+		}
+		
+		// Restore connection
+		var restoreErr error
+		if saved.ResourceType == "service" {
+			_, restoreErr = pfManager.StartPortForwardToService(ctx, saved.Namespace, saved.ResourceName, saved.LocalPort, saved.RemotePort)
+		} else {
+			_, restoreErr = pfManager.StartPortForwardToPod(ctx, saved.Namespace, saved.ResourceName, saved.LocalPort, saved.RemotePort)
+		}
+		
+		if restoreErr == nil {
+			restored++
+		}
+	}
+	
+	if restored > 0 {
+		p.Send(connectionsUpdated{})
+	}
+}
+
+// saveSessionState saves active connections to state file
+func saveSessionState(pfManager *portforward.Manager) {
+	active := pfManager.GetActiveConnectionsForSave()
+	
+	state := &config.SessionState{
+		Connections: make([]config.SavedConnection, len(active)),
+	}
+	
+	for i, conn := range active {
+		state.Connections[i] = config.SavedConnection{
+			Namespace:    conn.Namespace,
+			ResourceType: conn.ResourceType,
+			ResourceName: conn.ResourceName,
+			LocalPort:    conn.LocalPort,
+			RemotePort:   conn.RemotePort,
+		}
+	}
+	
+	state.Save()
 }

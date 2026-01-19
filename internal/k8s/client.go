@@ -233,6 +233,32 @@ func (c *Client) GetServices(ctx context.Context, namespace string) ([]ServiceIn
 }
 
 // GetPod returns a specific pod
+// GetService returns a single service by name
+func (c *Client) GetService(ctx context.Context, namespace, name string) (*ServiceInfo, error) {
+	svc, err := c.clientset.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service: %w", err)
+	}
+
+	svcInfo := &ServiceInfo{
+		Name:      svc.Name,
+		Namespace: svc.Namespace,
+		Type:      string(svc.Spec.Type),
+		Ports:     make([]ServicePort, 0),
+	}
+
+	for _, port := range svc.Spec.Ports {
+		svcInfo.Ports = append(svcInfo.Ports, ServicePort{
+			Name:       port.Name,
+			Port:       port.Port,
+			TargetPort: port.TargetPort.String(),
+			Protocol:   string(port.Protocol),
+		})
+	}
+
+	return svcInfo, nil
+}
+
 func (c *Client) GetPod(ctx context.Context, namespace, name string) (*PodInfo, error) {
 	pod, err := c.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
