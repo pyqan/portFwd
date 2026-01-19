@@ -491,17 +491,36 @@ func (m *Manager) StopPortForward(id string) error {
 	return nil
 }
 
-// StopAll stops all port-forward connections
+// StopAll stops all port-forward connections (for graceful shutdown)
 func (m *Manager) StopAll() {
+	// Disable onChange to prevent blocking on Bubble Tea's Send() during shutdown
+	m.mu.Lock()
+	m.onChange = nil
+	m.mu.Unlock()
+
 	m.mu.RLock()
-	ids := make([]string, 0, len(m.connections))
-	for id := range m.connections {
-		ids = append(ids, id)
+	connections := make([]*Connection, 0, len(m.connections))
+	for _, conn := range m.connections {
+		connections = append(connections, conn)
 	}
 	m.mu.RUnlock()
 
-	for _, id := range ids {
-		m.StopPortForward(id)
+	// Stop all connections without notifying
+	for _, conn := range connections {
+		conn.mu.Lock()
+		if conn.Status != StatusStopped {
+			conn.Status = StatusStopped
+			conn.StoppedAt = time.Now()
+		}
+		conn.mu.Unlock()
+
+		if conn.cancelFunc != nil {
+			conn.cancelFunc()
+		}
+
+		conn.stopOnce.Do(func() {
+			close(conn.stopChan)
+		})
 	}
 }
 
