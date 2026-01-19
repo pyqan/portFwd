@@ -41,7 +41,7 @@ PortFwd gives you:
 ## Install
 
 ```bash
-git clone https://github.com/yourusername/portfwd
+git clone https://github.com/pyqan/portFwd
 cd portfwd
 go build -o portfwd .
 ./portfwd

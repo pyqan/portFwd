@@ -1,4 +1,4 @@
-module github.com/alexsashin/portfwd
+module github.com/pyqan/portFwd
 
 go 1.21
 

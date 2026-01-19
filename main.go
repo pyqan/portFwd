@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/alexsashin/portfwd/internal/config"
-	"github.com/alexsashin/portfwd/internal/k8s"
-	"github.com/alexsashin/portfwd/internal/portforward"
-	"github.com/alexsashin/portfwd/internal/ui"
+	"github.com/pyqan/portFwd/internal/config"
+	"github.com/pyqan/portFwd/internal/k8s"
+	"github.com/pyqan/portFwd/internal/portforward"
+	"github.com/pyqan/portFwd/internal/ui"
 )
 
 var (

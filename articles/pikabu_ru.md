@@ -85,7 +85,7 @@ kubectl port-forward svc/postgres 5432:5432 -n database
 
 ## Ссылка
 
-Код открытый, можете пользоваться: [GitHub](https://github.com/yourusername/portfwd)
+Код открытый, можете пользоваться: [GitHub](https://github.com/pyqan/portFwd)
 
 Если кто работает с Kubernetes — попробуйте, мне интересен фидбек!
 

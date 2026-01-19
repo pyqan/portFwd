@@ -8,8 +8,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/alexsashin/portfwd/internal/k8s"
-	"github.com/alexsashin/portfwd/internal/portforward"
+	"github.com/pyqan/portFwd/internal/k8s"
+	"github.com/pyqan/portFwd/internal/portforward"
 )
 
 // RenderResourceTypeMenu renders the resource type selection menu

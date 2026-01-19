@@ -61,7 +61,7 @@ q - quit
 ### Install
 
 ```bash
-go install github.com/yourusername/portfwd@latest
+go install github.com/pyqan/portFwd@latest
 # or
 git clone ... && go build
 ```

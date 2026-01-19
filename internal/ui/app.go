@@ -11,9 +11,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/alexsashin/portfwd/internal/config"
-	"github.com/alexsashin/portfwd/internal/k8s"
-	"github.com/alexsashin/portfwd/internal/portforward"
+	"github.com/pyqan/portFwd/internal/config"
+	"github.com/pyqan/portFwd/internal/k8s"
+	"github.com/pyqan/portFwd/internal/portforward"
 )
 
 // View represents the current view

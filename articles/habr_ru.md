@@ -62,7 +62,7 @@ kubectl port-forward pod/my-app-7f8d9 8080:8080 -n development
 
 ```bash
 # Клонируем
-git clone https://github.com/yourusername/portfwd
+git clone https://github.com/pyqan/portFwd
 cd portfwd
 
 # Собираем
@@ -129,7 +129,7 @@ req := clientset.CoreV1().RESTClient().Post().
 
 ### Ссылки
 
-- GitHub: [github.com/yourusername/portfwd](https://github.com/yourusername/portfwd)
+- GitHub: [github.com/pyqan/portFwd](https://github.com/pyqan/portFwd)
 - Issues и предложения приветствуются!
 
 ---

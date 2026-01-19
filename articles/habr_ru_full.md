@@ -838,7 +838,7 @@ type Connection struct {
 
 ### Ссылки
 
-- **GitHub**: [github.com/yourusername/portfwd](https://github.com/yourusername/portfwd)
+- **GitHub**: [github.com/pyqan/portFwd](https://github.com/pyqan/portFwd)
 - **client-go examples**: [github.com/kubernetes/client-go/examples](https://github.com/kubernetes/client-go/tree/master/examples)
 - **Bubble Tea**: [github.com/charmbracelet/bubbletea](https://github.com/charmbracelet/bubbletea)
 - **Lipgloss**: [github.com/charmbracelet/lipgloss](https://github.com/charmbracelet/lipgloss)

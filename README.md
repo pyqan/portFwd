@@ -23,7 +23,7 @@ A powerful TUI (Terminal User Interface) application for managing Kubernetes por
 
 ```bash
 # Clone the repository
-git clone https://github.com/alexsashin/portfwd.git
+git clone https://github.com/pyqan/portFwd.git
 cd portfwd
 
 # Build
@@ -36,7 +36,7 @@ sudo mv portfwd /usr/local/bin/
 ### Go Install
 
 ```bash
-go install github.com/alexsashin/portfwd@latest
+go install github.com/pyqan/portFwd@latest
 ```
 
 ## 🚀 Quick Start
