@@ -808,12 +808,23 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 	}
 
 	ctx := context.Background()
-	restored := 0
+	changed := false
 	
 	for _, saved := range state.Connections {
-		// Check if resource is available
-		available := false
+		resourceType := portforward.ResourcePod
+		if saved.ResourceType == "service" {
+			resourceType = portforward.ResourceService
+		}
 		
+		if !saved.WasActive {
+			// Restore as stopped - don't try to connect
+			pfManager.AddStoppedConnection(saved.Namespace, resourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
+			changed = true
+			continue
+		}
+		
+		// Was active - check availability and try to connect
+		available := false
 		if saved.ResourceType == "service" {
 			_, err := k8sClient.GetService(ctx, saved.Namespace, saved.ResourceName)
 			available = err == nil
@@ -823,10 +834,13 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 		}
 		
 		if !available {
+			// Resource not available - add as stopped
+			pfManager.AddStoppedConnection(saved.Namespace, resourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
+			changed = true
 			continue
 		}
 		
-		// Restore connection
+		// Try to restore active connection
 		var restoreErr error
 		if saved.ResourceType == "service" {
 			_, restoreErr = pfManager.StartPortForwardToService(ctx, saved.Namespace, saved.ResourceName, saved.LocalPort, saved.RemotePort)
@@ -834,12 +848,14 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 			_, restoreErr = pfManager.StartPortForwardToPod(ctx, saved.Namespace, saved.ResourceName, saved.LocalPort, saved.RemotePort)
 		}
 		
-		if restoreErr == nil {
-			restored++
+		if restoreErr != nil {
+			// Failed - add as stopped
+			pfManager.AddStoppedConnection(saved.Namespace, resourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
 		}
+		changed = true
 	}
 	
-	if restored > 0 {
+	if changed {
 		p.Send(connectionsUpdated{})
 	}
 }
@@ -859,6 +875,7 @@ func saveSessionState(pfManager *portforward.Manager) {
 			ResourceName: conn.ResourceName,
 			LocalPort:    conn.LocalPort,
 			RemotePort:   conn.RemotePort,
+			WasActive:    conn.WasActive,
 		}
 	}
 	

@@ -628,6 +628,7 @@ type SavedConnectionInfo struct {
 	ResourceName string
 	LocalPort    int
 	RemotePort   int
+	WasActive    bool
 }
 
 // GetAllConnectionsForSave returns all connections info for saving to state
@@ -644,10 +645,48 @@ func (m *Manager) GetAllConnectionsForSave() []SavedConnectionInfo {
 			ResourceName: conn.ResourceName,
 			LocalPort:    conn.LocalPort,
 			RemotePort:   conn.RemotePort,
+			WasActive:    conn.Status == StatusActive,
 		})
 		conn.mu.RUnlock()
 	}
 	return result
+}
+
+// AddStoppedConnection adds a connection in stopped state (for restoring from state)
+func (m *Manager) AddStoppedConnection(namespace string, resourceType ResourceType, resourceName string, localPort, remotePort int) {
+	prefix := "pod"
+	if resourceType == ResourceService {
+		prefix = "svc"
+	}
+	id := fmt.Sprintf("%s/%s/%s:%d->%d", namespace, prefix, resourceName, localPort, remotePort)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Don't add if already exists
+	if _, ok := m.connections[id]; ok {
+		return
+	}
+
+	conn := &Connection{
+		ID:            id,
+		Namespace:     namespace,
+		ResourceType:  resourceType,
+		ResourceName:  resourceName,
+		LocalPort:     localPort,
+		RemotePort:    remotePort,
+		Status:        StatusStopped,
+		StartedAt:     time.Now(),
+		StoppedAt:     time.Now(),
+		Logs:          make([]string, 0),
+		AutoReconnect: true,
+		manager:       m,
+		stopChan:      make(chan struct{}),
+		readyChan:     make(chan struct{}),
+	}
+
+	conn.AddLog("Restored from previous session (stopped)")
+	m.connections[id] = conn
 }
 
 // DeleteConnection completely removes a connection from manager

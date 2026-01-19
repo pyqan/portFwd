@@ -22,6 +22,7 @@ type SavedConnection struct {
 	ResourceName string `yaml:"resourceName"`
 	LocalPort    int    `yaml:"localPort"`
 	RemotePort   int    `yaml:"remotePort"`
+	WasActive    bool   `yaml:"wasActive"` // was active when saved
 }
 
 // DefaultStatePath returns the default state file path
