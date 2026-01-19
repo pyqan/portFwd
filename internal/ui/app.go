@@ -29,6 +29,7 @@ const (
 	ViewConnecting
 	ViewConfirm
 	ViewLogs
+	ViewHelp
 )
 
 // ResourceType represents the type of resource to forward
@@ -182,6 +183,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Then stop all connections
 			m.pfManager.StopAll()
 			return m, tea.Quit
+		case "?":
+			if m.view != ViewHelp {
+				m.prevView = m.view
+				m.view = ViewHelp
+				return m, nil
+			}
 		case "esc":
 			return m.handleEsc()
 		}
@@ -206,6 +213,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConfirm(msg)
 		case ViewLogs:
 			return m.updateLogs(msg)
+		case ViewHelp:
+			return m.updateHelp(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -350,6 +359,9 @@ func (m Model) renderContent(height int) string {
 		}
 		return RenderLogWindow(logs, title, m.width-4, height-2)
 
+	case ViewHelp:
+		return RenderHelpScreen(m.width-4, height)
+
 	default:
 		return ""
 	}
@@ -375,6 +387,8 @@ func (m Model) viewName() string {
 		return "confirm"
 	case ViewLogs:
 		return "logs"
+	case ViewHelp:
+		return "help"
 	default:
 		return ""
 	}
@@ -395,6 +409,8 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 	case ViewLogs:
 		m.viewingLogsConnID = ""
 		m.view = ViewConnections
+	case ViewHelp:
+		m.view = m.prevView
 	}
 	m.err = nil
 	m.message = ""
@@ -709,6 +725,15 @@ func (m Model) updateLogs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "l":
 		m.viewingLogsConnID = ""
 		m.view = ViewConnections
+	}
+	return m, nil
+}
+
+// Help view handlers
+func (m Model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "?":
+		m.view = m.prevView
 	}
 	return m, nil
 }

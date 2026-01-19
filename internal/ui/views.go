@@ -446,6 +446,10 @@ func RenderHelp(view string) string {
 		keys = []string{
 			HelpKeyStyle.Render("esc") + HelpDescStyle.Render(" back"),
 		}
+	case "help":
+		keys = []string{
+			HelpKeyStyle.Render("esc/?") + HelpDescStyle.Render(" close"),
+		}
 	case "port_input":
 		keys = []string{
 			HelpKeyStyle.Render("tab") + HelpDescStyle.Render(" next field"),
@@ -456,6 +460,69 @@ func RenderHelp(view string) string {
 
 	keys = append(keys, commonKeys...)
 	return HelpStyle.Render(strings.Join(keys, "  │  "))
+}
+
+// RenderHelpScreen renders the full help screen
+func RenderHelpScreen(width, height int) string {
+	var b strings.Builder
+
+	title := TitleStyle.Render("⌨️  Keyboard Shortcuts")
+	b.WriteString(title + "\n\n")
+
+	sections := []struct {
+		name string
+		keys [][]string
+	}{
+		{
+			name: "Global",
+			keys: [][]string{
+				{"q, Ctrl+C", "Quit application"},
+				{"?", "Show/hide this help"},
+				{"Esc", "Go back / Cancel"},
+			},
+		},
+		{
+			name: "Connections List",
+			keys: [][]string{
+				{"↑/↓, k/j", "Navigate"},
+				{"n", "New port-forward"},
+				{"d", "Stop selected connection"},
+				{"r", "Reconnect stopped connection"},
+				{"x, Delete", "Delete connection from list"},
+				{"l", "View connection logs"},
+			},
+		},
+		{
+			name: "Selection Lists",
+			keys: [][]string{
+				{"↑/↓, k/j", "Navigate"},
+				{"Enter", "Select item"},
+				{"p", "Quick select Pods (resource type)"},
+				{"s", "Quick select Services (resource type)"},
+			},
+		},
+		{
+			name: "Port Input",
+			keys: [][]string{
+				{"Tab", "Switch between local/remote port"},
+				{"Enter", "Start port-forward"},
+			},
+		},
+	}
+
+	for _, section := range sections {
+		b.WriteString(SubtitleStyle.Render(section.name) + "\n")
+		for _, kv := range section.keys {
+			key := HelpKeyStyle.Render(fmt.Sprintf("  %-14s", kv[0]))
+			desc := HelpDescStyle.Render(kv[1])
+			b.WriteString(key + " " + desc + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(HelpDescStyle.Render("Press ? or Esc to close"))
+
+	return BoxStyle.Width(width).Render(b.String())
 }
 
 // RenderHeader renders the application header
