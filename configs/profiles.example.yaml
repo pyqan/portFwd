@@ -1,0 +1,63 @@
+# Example PortFwd Profiles Configuration
+# Copy this file to ~/.config/portfwd/config.yaml
+
+profiles:
+  # Development environment setup
+  - name: development
+    description: Local development port forwards
+    forwards:
+      - namespace: default
+        pod: api-server
+        localPort: 8080
+        remotePort: 8080
+      - namespace: default
+        pod: postgres
+        localPort: 5432
+        remotePort: 5432
+      - namespace: default
+        pod: redis
+        localPort: 6379
+        remotePort: 6379
+
+  # Monitoring stack
+  - name: monitoring
+    description: Access to monitoring services
+    forwards:
+      - namespace: monitoring
+        service: prometheus
+        localPort: 9090
+        remotePort: 9090
+      - namespace: monitoring
+        service: grafana
+        localPort: 3000
+        remotePort: 3000
+      - namespace: monitoring
+        service: alertmanager
+        localPort: 9093
+        remotePort: 9093
+
+  # Database access
+  - name: databases
+    description: Database connections
+    forwards:
+      - namespace: databases
+        pod: postgresql-primary
+        localPort: 5432
+        remotePort: 5432
+      - namespace: databases
+        pod: mysql-primary
+        localPort: 3306
+        remotePort: 3306
+      - namespace: databases
+        pod: mongodb
+        localPort: 27017
+        remotePort: 27017
+
+  # Debugging
+  - name: debug
+    description: Debug endpoints
+    forwards:
+      - namespace: kube-system
+        pod: coredns
+        localPort: 9153
+        remotePort: 9153
