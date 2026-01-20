@@ -33,12 +33,6 @@ go build -o portfwd .
 sudo mv portfwd /usr/local/bin/
 ```
 
-### Go Install
-
-```bash
-go install github.com/pyqan/portFwd@latest
-```
-
 ## 🚀 Quick Start
 
 ### Interactive Mode (TUI)
