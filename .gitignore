@@ -1,0 +1,16 @@
+# Build artifacts
+portfwd
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Articles (not for public repo)
+articles/
