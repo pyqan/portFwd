@@ -91,6 +91,7 @@ func NewClientWithKubeconfig(kubeconfigPath string) (*Client, error) {
 
 // getKubeConfig returns the Kubernetes configuration
 // Based on: https://github.com/kubernetes/client-go/tree/master/examples/out-of-cluster-client-configuration
+
 func getKubeConfig() (*rest.Config, error) {
 	// Try in-cluster config first (when running inside a pod)
 	config, err := rest.InClusterConfig()
