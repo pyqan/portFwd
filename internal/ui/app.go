@@ -426,10 +426,38 @@ func (m Model) updateConnections(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedConn > 0 {
 			m.selectedConn--
 		}
+		return m, nil
 	case "down", "j":
 		if m.selectedConn < len(connections)-1 {
 			m.selectedConn++
 		}
+		return m, nil
+	case "enter":
+		// Toggle connection: active -> stop, stopped/error -> reconnect
+		if len(connections) > 0 && m.selectedConn < len(connections) {
+			conn := connections[m.selectedConn]
+			info := conn.GetConnectionInfo()
+			if info.Status == portforward.StatusActive {
+				// Stop active connection
+				return m, m.stopPortForward(info.ID)
+			} else if info.Status == portforward.StatusStopped || info.Status == portforward.StatusError {
+				// Reconnect stopped/error connection
+				m.view = ViewConnecting
+				if info.ResourceType == portforward.ResourceService {
+					m.connectingConnID = info.ID
+					return m, tea.Batch(
+						m.startPortForwardToServiceAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort),
+						tickCmd(),
+					)
+				}
+				m.connectingConnID = info.ID
+				return m, tea.Batch(
+					m.startPortForwardToPodAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort),
+					tickCmd(),
+				)
+			}
+		}
+		return m, nil
 	case "n":
 		// New port forward - go to resource type selection
 		m.view = ViewResourceType
@@ -460,10 +488,19 @@ func (m Model) updateConnections(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			conn := connections[m.selectedConn]
 			info := conn.GetConnectionInfo()
 			if info.Status == portforward.StatusStopped || info.Status == portforward.StatusError {
+				m.view = ViewConnecting
 				if info.ResourceType == portforward.ResourceService {
-					return m, m.startPortForwardToServiceAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort)
+					m.connectingConnID = info.ID
+					return m, tea.Batch(
+						m.startPortForwardToServiceAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort),
+						tickCmd(),
+					)
 				}
-				return m, m.startPortForwardToPodAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort)
+				m.connectingConnID = info.ID
+				return m, tea.Batch(
+					m.startPortForwardToPodAsync(info.Namespace, info.ResourceName, info.LocalPort, info.RemotePort),
+					tickCmd(),
+				)
 			}
 		}
 	case "x", "delete", "backspace":

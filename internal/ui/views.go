@@ -436,6 +436,7 @@ func RenderHelp(view string) string {
 	case "connections":
 		keys = []string{
 			HelpKeyStyle.Render("↑/↓") + HelpDescStyle.Render(" navigate"),
+			HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" toggle"),
 			HelpKeyStyle.Render("n") + HelpDescStyle.Render(" new"),
 			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" stop"),
 			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" reconnect"),
@@ -485,6 +486,7 @@ func RenderHelpScreen(width, height int) string {
 			name: "Connections List",
 			keys: [][]string{
 				{"↑/↓, k/j", "Navigate"},
+				{"Enter", "Toggle: stop active / reconnect stopped"},
 				{"n", "New port-forward"},
 				{"d", "Stop selected connection"},
 				{"r", "Reconnect stopped connection"},
