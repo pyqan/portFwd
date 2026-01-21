@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -541,6 +542,12 @@ func (m *Manager) GetConnections() []*Connection {
 	for _, conn := range m.connections {
 		result = append(result, conn)
 	}
+	
+	// Sort by StartedAt to maintain stable order
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StartedAt.Before(result[j].StartedAt)
+	})
+	
 	return result
 }
 
