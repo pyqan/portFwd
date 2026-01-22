@@ -13,6 +13,7 @@ import (
 
 	"github.com/pyqan/portFwd/internal/config"
 	"github.com/pyqan/portFwd/internal/k8s"
+	"github.com/pyqan/portFwd/internal/logger"
 	"github.com/pyqan/portFwd/internal/portforward"
 )
 
@@ -30,6 +31,7 @@ const (
 	ViewConfirm
 	ViewLogs
 	ViewHelp
+	ViewDebug
 )
 
 // ResourceType represents the type of resource to forward
@@ -105,6 +107,10 @@ type Model struct {
 	
 	// Viewing logs for specific connection
 	viewingLogsConnID string
+	
+	// Debug mode
+	debugMode       bool
+	debugScrollOffset int
 }
 
 // Messages
@@ -189,6 +195,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = ViewHelp
 				return m, nil
 			}
+		case "g":
+			// Debug logs view (only in debug mode)
+			if m.debugMode && m.view != ViewDebug {
+				m.prevView = m.view
+				m.view = ViewDebug
+				m.debugScrollOffset = 0
+				return m, nil
+			}
 		case "esc":
 			return m.handleEsc()
 		}
@@ -215,6 +229,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLogs(msg)
 		case ViewHelp:
 			return m.updateHelp(msg)
+		case ViewDebug:
+			return m.updateDebug(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -360,7 +376,10 @@ func (m Model) renderContent(height int) string {
 		return RenderLogWindow(logs, title, m.width-4, height-2)
 
 	case ViewHelp:
-		return RenderHelpScreen(m.width-4, height)
+		return RenderHelpScreen(m.width-4, height, m.debugMode)
+
+	case ViewDebug:
+		return RenderDebugLogs(m.width-4, height, m.debugScrollOffset)
 
 	default:
 		return ""
@@ -389,6 +408,8 @@ func (m Model) viewName() string {
 		return "logs"
 	case ViewHelp:
 		return "help"
+	case ViewDebug:
+		return "debug"
 	default:
 		return ""
 	}
@@ -410,6 +431,8 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 		m.viewingLogsConnID = ""
 		m.view = ViewConnections
 	case ViewHelp:
+		m.view = m.prevView
+	case ViewDebug:
 		m.view = m.prevView
 	}
 	m.err = nil
@@ -775,6 +798,43 @@ func (m Model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// Debug view handlers
+func (m Model) updateDebug(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	entries := logger.GetEntries()
+	maxScroll := len(entries) - 10
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	switch msg.String() {
+	case "esc", "g":
+		m.view = m.prevView
+	case "up", "k":
+		if m.debugScrollOffset > 0 {
+			m.debugScrollOffset--
+		}
+	case "down", "j":
+		if m.debugScrollOffset < maxScroll {
+			m.debugScrollOffset++
+		}
+	case "home":
+		m.debugScrollOffset = 0
+	case "end":
+		m.debugScrollOffset = maxScroll
+	case "pgup":
+		m.debugScrollOffset -= 10
+		if m.debugScrollOffset < 0 {
+			m.debugScrollOffset = 0
+		}
+	case "pgdown":
+		m.debugScrollOffset += 10
+		if m.debugScrollOffset > maxScroll {
+			m.debugScrollOffset = maxScroll
+		}
+	}
+	return m, nil
+}
+
 // Commands
 func (m Model) loadContext() tea.Cmd {
 	return func() tea.Msg {
@@ -905,8 +965,9 @@ func DefaultKeyMap() KeyMap {
 }
 
 // Run starts the TUI application
-func Run(k8sClient *k8s.Client, pfManager *portforward.Manager, cfg *config.Config) error {
+func Run(k8sClient *k8s.Client, pfManager *portforward.Manager, cfg *config.Config, debugMode bool) error {
 	model := NewModel(k8sClient, pfManager, cfg)
+	model.debugMode = debugMode
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
 	// Set up onChange callback to refresh UI

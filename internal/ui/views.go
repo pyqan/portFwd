@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/pyqan/portFwd/internal/k8s"
+	"github.com/pyqan/portFwd/internal/logger"
 	"github.com/pyqan/portFwd/internal/portforward"
 )
 
@@ -451,6 +452,12 @@ func RenderHelp(view string) string {
 		keys = []string{
 			HelpKeyStyle.Render("esc/?") + HelpDescStyle.Render(" close"),
 		}
+	case "debug":
+		keys = []string{
+			HelpKeyStyle.Render("↑/↓") + HelpDescStyle.Render(" scroll"),
+			HelpKeyStyle.Render("PgUp/PgDn") + HelpDescStyle.Render(" fast scroll"),
+			HelpKeyStyle.Render("g/esc") + HelpDescStyle.Render(" close"),
+		}
 	case "port_input":
 		keys = []string{
 			HelpKeyStyle.Render("tab") + HelpDescStyle.Render(" next field"),
@@ -464,7 +471,7 @@ func RenderHelp(view string) string {
 }
 
 // RenderHelpScreen renders the full help screen
-func RenderHelpScreen(width, height int) string {
+func RenderHelpScreen(width, height int, debugMode bool) string {
 	var b strings.Builder
 
 	title := TitleStyle.Render("⌨️  Keyboard Shortcuts")
@@ -512,6 +519,22 @@ func RenderHelpScreen(width, height int) string {
 		},
 	}
 
+	// Add debug section if debug mode is enabled
+	if debugMode {
+		sections = append(sections, struct {
+			name string
+			keys [][]string
+		}{
+			name: "Debug Mode",
+			keys: [][]string{
+				{"g", "View debug logs"},
+				{"↑/↓", "Scroll logs"},
+				{"PgUp/PgDn", "Fast scroll"},
+				{"Home/End", "Jump to start/end"},
+			},
+		})
+	}
+
 	for _, section := range sections {
 		b.WriteString(SubtitleStyle.Render(section.name) + "\n")
 		for _, kv := range section.keys {
@@ -522,7 +545,109 @@ func RenderHelpScreen(width, height int) string {
 		b.WriteString("\n")
 	}
 
+	if debugMode {
+		logPath := logger.GetLogPath()
+		if logPath != "" {
+			b.WriteString(DimStyle.Render(fmt.Sprintf("Debug log: %s", logPath)) + "\n\n")
+		}
+	}
+
 	b.WriteString(HelpDescStyle.Render("Press ? or Esc to close"))
+
+	return BoxStyle.Width(width).Render(b.String())
+}
+
+// RenderDebugLogs renders the debug log view
+func RenderDebugLogs(width, height, scrollOffset int) string {
+	var b strings.Builder
+
+	title := TitleStyle.Render("🔍 Debug Logs")
+	b.WriteString(title + "\n")
+
+	logPath := logger.GetLogPath()
+	if logPath != "" {
+		b.WriteString(DimStyle.Render(fmt.Sprintf("File: %s", logPath)) + "\n")
+	}
+	b.WriteString("\n")
+
+	entries := logger.GetEntries()
+	total := len(entries)
+
+	if total == 0 {
+		b.WriteString(DimStyle.Render("  No debug logs yet...") + "\n")
+		b.WriteString(DimStyle.Render("  Logs will appear as operations are performed."))
+		return BoxStyle.Width(width).Render(b.String())
+	}
+
+	// Calculate visible lines (reserve space for header)
+	visibleLines := height - 6
+	if visibleLines < 5 {
+		visibleLines = 5
+	}
+
+	// Calculate view range
+	startIdx := scrollOffset
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if startIdx >= total {
+		startIdx = total - 1
+	}
+
+	endIdx := startIdx + visibleLines
+	if endIdx > total {
+		endIdx = total
+	}
+
+	// Show "more above" indicator
+	if startIdx > 0 {
+		b.WriteString(ScrollIndicatorStyle.Render(fmt.Sprintf("  ↑ %d more above\n", startIdx)))
+	}
+
+	// Render log entries
+	for i := startIdx; i < endIdx; i++ {
+		entry := entries[i]
+		
+		// Color based on level
+		var levelStyle lipgloss.Style
+		switch entry.Level {
+		case logger.LevelDebug:
+			levelStyle = lipgloss.NewStyle().Foreground(ColorMuted)
+		case logger.LevelInfo:
+			levelStyle = lipgloss.NewStyle().Foreground(ColorSecondary)
+		case logger.LevelWarn:
+			levelStyle = lipgloss.NewStyle().Foreground(ColorWarning)
+		case logger.LevelError:
+			levelStyle = lipgloss.NewStyle().Foreground(ColorError)
+		default:
+			levelStyle = lipgloss.NewStyle().Foreground(ColorTextDim)
+		}
+
+		// Format: [time] [LEVEL] [source] message
+		timeStr := entry.Time.Format("15:04:05.000")
+		line := fmt.Sprintf("%s [%-5s] [%-12s] %s",
+			DimStyle.Render(timeStr),
+			levelStyle.Render(entry.Level.String()),
+			lipgloss.NewStyle().Foreground(ColorPrimary).Render(entry.Source),
+			entry.Message,
+		)
+
+		// Truncate if too long
+		if len(line) > width-4 {
+			line = line[:width-7] + "..."
+		}
+
+		b.WriteString("  " + line + "\n")
+	}
+
+	// Show "more below" indicator
+	remaining := total - endIdx
+	if remaining > 0 {
+		b.WriteString(ScrollIndicatorStyle.Render(fmt.Sprintf("  ↓ %d more below", remaining)))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(HelpDescStyle.Render("  ↑/↓ scroll • PgUp/PgDn fast • Home/End jump • g/Esc close"))
 
 	return BoxStyle.Width(width).Render(b.String())
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/pyqan/portFwd/internal/config"
 	"github.com/pyqan/portFwd/internal/k8s"
+	"github.com/pyqan/portFwd/internal/logger"
 	"github.com/pyqan/portFwd/internal/portforward"
 	"github.com/pyqan/portFwd/internal/ui"
 )
@@ -24,6 +25,7 @@ var (
 	// Global flags
 	namespace  string
 	configPath string
+	debugMode  bool
 )
 
 func main() {
@@ -43,6 +45,7 @@ Features:
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Config file path")
+	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug logging to ~/.config/portfwd/debug.log")
 
 	// Add subcommands
 	rootCmd.AddCommand(
@@ -60,22 +63,42 @@ Features:
 
 // runInteractive starts the TUI application
 func runInteractive(cmd *cobra.Command, args []string) error {
+	// Initialize debug logger
+	if err := logger.Init(debugMode); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize debug logger: %v\n", err)
+	}
+	defer logger.Close()
+
+	if debugMode {
+		logger.Info("main", "PortFwd started in debug mode")
+		logger.Debug("main", "Log file: %s", logger.GetLogPath())
+	}
+
 	k8sClient, err := k8s.NewClient()
 	if err != nil {
+		logger.Error("main", "Failed to create Kubernetes client: %v", err)
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
+	logger.Debug("main", "Kubernetes client initialized")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
+		logger.Error("main", "Failed to load config: %v", err)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	logger.Debug("main", "Config loaded")
 
 	pfManager := portforward.NewManager(k8sClient.GetClientset(), k8sClient.GetRestConfig())
+	logger.Debug("main", "Port-forward manager created")
 
 	// Cleanup on exit
-	defer pfManager.StopAll()
+	defer func() {
+		logger.Debug("main", "Stopping all connections...")
+		pfManager.StopAll()
+		logger.Info("main", "PortFwd shutdown complete")
+	}()
 
-	return ui.Run(k8sClient, pfManager, cfg)
+	return ui.Run(k8sClient, pfManager, cfg, debugMode)
 }
 
 // newForwardCmd creates the forward command

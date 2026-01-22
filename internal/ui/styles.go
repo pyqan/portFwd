@@ -212,6 +212,11 @@ var StatusWarningStyle = lipgloss.NewStyle().
 	Foreground(ColorWarning).
 	Bold(true)
 
+// DimStyle for subtle text (debug info, paths, etc)
+var DimStyle = lipgloss.NewStyle().
+	Foreground(ColorMuted).
+	Italic(true)
+
 // Logo returns the application logo
 func Logo() string {
 	logo := `
