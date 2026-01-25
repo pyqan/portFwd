@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -74,42 +76,47 @@ func (c *Client) Send(req *Request) (*Response, error) {
 
 // IsDaemonRunning checks if daemon is running
 func IsDaemonRunning() bool {
-	// Check PID file
+	// Primary check: try to connect to socket
+	// This is the most reliable method
+	client := NewClient()
+	if err := client.Connect(); err != nil {
+		// Socket not available, clean up stale files
+		cleanupStaleFiles()
+		return false
+	}
+	client.Close()
+	return true
+}
+
+// cleanupStaleFiles removes PID and socket files if daemon is not running
+func cleanupStaleFiles() {
 	pidPath := GetPIDPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		return false
+		return
 	}
 
-	pid, err := strconv.Atoi(string(data))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
-		return false
+		os.Remove(pidPath)
+		os.Remove(GetSocketPath())
+		return
 	}
 
 	// Check if process exists
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		return false
-	}
-
-	// On Unix, FindProcess always succeeds, so we need to send signal 0
-	// to check if process actually exists
-	err = process.Signal(os.Signal(nil))
-	if err != nil {
-		// Process doesn't exist, clean up stale files
 		os.Remove(pidPath)
 		os.Remove(GetSocketPath())
-		return false
+		return
 	}
 
-	// Also check socket connectivity
-	client := NewClient()
-	if err := client.Connect(); err != nil {
-		return false
+	// Try to signal process (signal 0 just checks if process exists)
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		// Process doesn't exist, clean up
+		os.Remove(pidPath)
+		os.Remove(GetSocketPath())
 	}
-	client.Close()
-
-	return true
 }
 
 // GetDaemonPID returns the daemon PID if running

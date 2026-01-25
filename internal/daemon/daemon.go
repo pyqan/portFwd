@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -56,6 +57,9 @@ func NewDaemon() (*Daemon, error) {
 func (d *Daemon) Run() error {
 	logger.Info("daemon", "Starting daemon...")
 
+	// Ignore SIGHUP so we don't die when parent terminal closes
+	signal.Ignore(syscall.SIGHUP)
+
 	// Write PID file
 	if err := d.writePIDFile(); err != nil {
 		return fmt.Errorf("failed to write PID file: %w", err)
@@ -75,7 +79,7 @@ func (d *Daemon) Run() error {
 
 	logger.Info("daemon", "Daemon started (PID: %d)", os.Getpid())
 
-	// Handle signals
+	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -283,16 +287,27 @@ func (d *Daemon) restoreConnections() error {
 		return err
 	}
 
+	if len(state.Connections) == 0 {
+		logger.Debug("daemon", "No connections to restore")
+		return nil
+	}
+
 	logger.Debug("daemon", "Restoring %d connections", len(state.Connections))
 
+	restored := 0
+	failed := 0
+
 	for _, saved := range state.Connections {
+		resType := portforward.ResourcePod
+		if saved.ResourceType == "service" {
+			resType = portforward.ResourceService
+		}
+
 		if !saved.WasActive {
 			// Add as stopped connection (for tracking)
-			resType := portforward.ResourcePod
-			if saved.ResourceType == "service" {
-				resType = portforward.ResourceService
-			}
 			d.manager.AddStoppedConnection(saved.Namespace, resType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
+			logger.Debug("daemon", "Added stopped connection: %s/%s/%s",
+				saved.Namespace, saved.ResourceType, saved.ResourceName)
 			continue
 		}
 
@@ -301,11 +316,6 @@ func (d *Daemon) restoreConnections() error {
 			saved.Namespace, saved.ResourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
 
 		ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
-
-		resType := portforward.ResourcePod
-		if saved.ResourceType == "service" {
-			resType = portforward.ResourceService
-		}
 
 		var err error
 		if resType == portforward.ResourceService {
@@ -316,10 +326,17 @@ func (d *Daemon) restoreConnections() error {
 		cancel()
 
 		if err != nil {
-			logger.Warn("daemon", "Failed to restore connection: %v", err)
+			logger.Warn("daemon", "Failed to restore connection %s/%s/%s: %v",
+				saved.Namespace, saved.ResourceType, saved.ResourceName, err)
+			// Add as stopped connection so user can see it and retry
+			d.manager.AddStoppedConnection(saved.Namespace, resType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
+			failed++
+		} else {
+			restored++
 		}
 	}
 
+	logger.Info("daemon", "Connection restore complete: %d restored, %d failed", restored, failed)
 	return nil
 }
 
@@ -354,39 +371,45 @@ func forkDaemon() error {
 		return fmt.Errorf("failed to get executable: %w", err)
 	}
 
+	// Ensure config directory exists
+	if err := os.MkdirAll(GetConfigDir(), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
 	// Prepare log file for daemon output
 	logFile, err := os.OpenFile(GetLogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
+	defer logFile.Close()
 
-	// Start daemon process
-	procAttr := &os.ProcAttr{
-		Dir: "/",
-		Env: os.Environ(),
-		Files: []*os.File{
-			nil,     // stdin
-			logFile, // stdout
-			logFile, // stderr
-		},
+	// Use exec.Command for better process management
+	cmd := exec.Command(executable, "daemon", "start", "--foreground")
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Stdin = nil
+	
+	// Set process group to detach from controlling terminal
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
 	}
 
-	// Run with daemon --foreground flag
-	process, err := os.StartProcess(executable, []string{executable, "daemon", "start", "--foreground"}, procAttr)
-	if err != nil {
-		logFile.Close()
+	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	// Detach from parent
-	if err := process.Release(); err != nil {
-		logger.Warn("daemon", "Failed to release process: %v", err)
+	pid := cmd.Process.Pid
+	fmt.Printf("Daemon started (PID: %d)\n", pid)
+	fmt.Printf("Log file: %s\n", GetLogPath())
+	
+	// Wait a bit to check if daemon started successfully
+	time.Sleep(1 * time.Second)
+	
+	// Check if process is still running
+	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		return fmt.Errorf("daemon failed to start (check log: %s)", GetLogPath())
 	}
 
-	logFile.Close()
-
-	fmt.Printf("Daemon started (PID: %d)\n", process.Pid)
-	fmt.Printf("Log file: %s\n", GetLogPath())
 	return nil
 }
 
