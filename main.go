@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pyqan/portFwd/internal/config"
+	"github.com/pyqan/portFwd/internal/daemon"
 	"github.com/pyqan/portFwd/internal/k8s"
 	"github.com/pyqan/portFwd/internal/logger"
 	"github.com/pyqan/portFwd/internal/portforward"
@@ -53,6 +55,10 @@ Features:
 		newListCmd(),
 		newProfileCmd(),
 		newVersionCmd(),
+		newDaemonCmd(),
+		newAddCmd(),
+		newRemoveCmd(),
+		newStatusCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -460,6 +466,270 @@ func formatServicePorts(ports []k8s.ServicePort) string {
 		parts = append(parts, fmt.Sprintf("%d->%s", p.Port, p.TargetPort))
 	}
 	return strings.Join(parts, ",")
+}
+
+// newDaemonCmd creates the daemon command
+func newDaemonCmd() *cobra.Command {
+	var foreground bool
+
+	cmd := &cobra.Command{
+		Use:   "daemon",
+		Short: "Manage background daemon",
+		Long:  "Start, stop, and manage the PortFwd background daemon",
+	}
+
+	startCmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the daemon",
+		Long:  "Start the PortFwd daemon to manage port-forwards in background",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize logger for daemon
+			if err := logger.Init(debugMode || foreground); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to initialize logger: %v\n", err)
+			}
+			defer logger.Close()
+
+			return daemon.StartDaemon(foreground)
+		},
+	}
+	startCmd.Flags().BoolVarP(&foreground, "foreground", "f", false, "Run in foreground (don't daemonize)")
+
+	stopCmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return daemon.StopDaemon()
+		},
+	}
+
+	statusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show daemon status",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !daemon.IsDaemonRunning() {
+				fmt.Println("Daemon is not running")
+				return nil
+			}
+
+			client := daemon.NewClient()
+			if err := client.Connect(); err != nil {
+				return err
+			}
+			defer client.Close()
+
+			resp, err := client.Status()
+			if err != nil {
+				return err
+			}
+
+			if !resp.Success {
+				return fmt.Errorf(resp.Error)
+			}
+
+			var status daemon.StatusInfo
+			if err := json.Unmarshal(resp.Data, &status); err != nil {
+				return err
+			}
+
+			fmt.Printf("Daemon Status: Running\n")
+			fmt.Printf("PID: %d\n", status.PID)
+			fmt.Printf("Uptime: %s\n", status.Uptime)
+			fmt.Printf("Active Connections: %d\n", len(status.Connections))
+
+			if len(status.Connections) > 0 {
+				fmt.Println("\nConnections:")
+				for _, conn := range status.Connections {
+					status := "●"
+					if conn.Status == "stopped" {
+						status = "○"
+					} else if conn.Status == "error" {
+						status = "✗"
+					}
+					fmt.Printf("  %s %s/%s/%s  localhost:%d -> %d  [%s]\n",
+						status, conn.Namespace, conn.ResourceType, conn.ResourceName,
+						conn.LocalPort, conn.RemotePort, conn.Duration)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.AddCommand(startCmd, stopCmd, statusCmd)
+	return cmd
+}
+
+// newAddCmd creates the add command for daemon
+func newAddCmd() *cobra.Command {
+	var (
+		service    string
+		pod        string
+		localPort  int
+		remotePort int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add port-forward to running daemon",
+		Long:  "Add a new port-forward to the running daemon",
+		Example: `  # Add service port-forward
+  portfwd add -n longhorn-system -s longhorn-frontend -l 8080 -r 80
+
+  # Add pod port-forward
+  portfwd add -n default -p my-pod -l 3000 -r 3000`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !daemon.IsDaemonRunning() {
+				return fmt.Errorf("daemon is not running. Start it with: portfwd daemon start")
+			}
+
+			if namespace == "" {
+				return fmt.Errorf("namespace is required (-n)")
+			}
+			if pod == "" && service == "" {
+				return fmt.Errorf("either pod (-p) or service (-s) is required")
+			}
+			if localPort == 0 {
+				return fmt.Errorf("local port is required (-l)")
+			}
+			if remotePort == 0 {
+				remotePort = localPort
+			}
+
+			client := daemon.NewClient()
+			if err := client.Connect(); err != nil {
+				return err
+			}
+			defer client.Close()
+
+			resourceType := "pod"
+			resourceName := pod
+			if service != "" {
+				resourceType = "service"
+				resourceName = service
+			}
+
+			resp, err := client.Add(namespace, resourceType, resourceName, localPort, remotePort)
+			if err != nil {
+				return err
+			}
+
+			if !resp.Success {
+				return fmt.Errorf(resp.Error)
+			}
+
+			fmt.Println(resp.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&service, "service", "s", "", "Service name")
+	cmd.Flags().StringVarP(&pod, "pod", "p", "", "Pod name")
+	cmd.Flags().IntVarP(&localPort, "local", "l", 0, "Local port")
+	cmd.Flags().IntVarP(&remotePort, "remote", "r", 0, "Remote port (defaults to local)")
+
+	return cmd
+}
+
+// newRemoveCmd creates the remove command for daemon
+func newRemoveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "remove [id]",
+		Aliases: []string{"rm"},
+		Short:   "Remove port-forward from daemon",
+		Long:    "Remove a port-forward connection from the running daemon",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !daemon.IsDaemonRunning() {
+				return fmt.Errorf("daemon is not running")
+			}
+
+			client := daemon.NewClient()
+			if err := client.Connect(); err != nil {
+				return err
+			}
+			defer client.Close()
+
+			resp, err := client.Remove(args[0])
+			if err != nil {
+				return err
+			}
+
+			if !resp.Success {
+				return fmt.Errorf(resp.Error)
+			}
+
+			fmt.Println(resp.Message)
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// newStatusCmd creates standalone status command (alias for daemon status)
+func newStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show daemon and connections status",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !daemon.IsDaemonRunning() {
+				fmt.Println("Daemon: Not running")
+				fmt.Println("\nTo start daemon: portfwd daemon start")
+				fmt.Println("To use TUI mode: portfwd")
+				return nil
+			}
+
+			client := daemon.NewClient()
+			if err := client.Connect(); err != nil {
+				return err
+			}
+			defer client.Close()
+
+			resp, err := client.Status()
+			if err != nil {
+				return err
+			}
+
+			var status daemon.StatusInfo
+			if err := json.Unmarshal(resp.Data, &status); err != nil {
+				return err
+			}
+
+			fmt.Printf("Daemon: Running (PID %d, uptime %s)\n", status.PID, status.Uptime)
+			
+			if len(status.Connections) == 0 {
+				fmt.Println("\nNo active connections")
+				fmt.Println("Add with: portfwd add -n <namespace> -s <service> -l <local-port> -r <remote-port>")
+				return nil
+			}
+
+			fmt.Printf("\nConnections (%d):\n", len(status.Connections))
+			fmt.Println("  ID                                                          LOCAL    REMOTE  STATUS    UPTIME")
+			fmt.Println("  " + strings.Repeat("-", 90))
+			
+			for _, conn := range status.Connections {
+				statusIcon := "●"
+				switch conn.Status {
+				case "stopped":
+					statusIcon = "○"
+				case "error":
+					statusIcon = "✗"
+				case "starting":
+					statusIcon = "◐"
+				}
+				
+				id := conn.ID
+				if len(id) > 55 {
+					id = id[:52] + "..."
+				}
+				
+				fmt.Printf("  %-55s  %5d -> %-5d  %s %-8s %s\n",
+					id, conn.LocalPort, conn.RemotePort, statusIcon, conn.Status, conn.Duration)
+			}
+
+			return nil
+		},
+	}
 }
 
 // Unused but keep for potential future use
