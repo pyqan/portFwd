@@ -435,6 +435,9 @@ func RenderHelp(view string) string {
 			HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" confirm"),
 			HelpKeyStyle.Render("esc") + HelpDescStyle.Render(" cancel"),
 		}
+	case "restoring":
+		// Only quit is available during restoration
+		return HelpStyle.Render(HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit") + "  │  " + HelpDescStyle.Render("Please wait..."))
 	}
 
 	keys = append(keys, commonKeys...)

@@ -111,6 +111,11 @@ type Model struct {
 	// Debug mode
 	debugMode       bool
 	debugScrollOffset int
+	
+	// Session restoration state
+	restoring        bool
+	restoringCurrent int
+	restoringTotal   int
 }
 
 // Messages
@@ -125,6 +130,11 @@ type (
 	connectionsUpdated struct{}
 	contextMsg         string
 	tickMsg            time.Time
+	
+	// Session restoration messages
+	restorationStarted  struct{ total int }
+	restorationProgress struct{ current, total int }
+	restorationComplete struct{}
 )
 
 // tickCmd returns a command that sends tick messages for UI updates
@@ -187,7 +197,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Global keys
+		// Allow quit even during restoration
 		switch msg.String() {
 		case "ctrl+c", "q":
 			// Save state BEFORE stopping connections
@@ -195,6 +205,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Then stop all connections
 			m.pfManager.StopAll()
 			return m, tea.Quit
+		}
+		
+		// Block all other keys while restoring session
+		if m.restoring {
+			return m, nil
+		}
+		
+		// Global keys (not during restoration)
+		switch msg.String() {
 		case "?":
 			if m.view != ViewHelp {
 				m.prevView = m.view
@@ -279,10 +298,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh view
 
 	case tickMsg:
-		// Continue ticking while connecting
-		if m.view == ViewConnecting {
+		// Continue ticking while connecting or restoring
+		if m.view == ViewConnecting || m.restoring {
 			return m, tickCmd()
 		}
+	
+	// Session restoration messages
+	case restorationStarted:
+		m.restoring = true
+		m.restoringCurrent = 0
+		m.restoringTotal = msg.total
+		m.loading = true
+		return m, tickCmd()
+	
+	case restorationProgress:
+		m.restoringCurrent = msg.current
+		m.restoringTotal = msg.total
+	
+	case restorationComplete:
+		m.restoring = false
+		m.restoringCurrent = 0
+		m.restoringTotal = 0
+		m.loading = false
 	}
 
 	return m, nil
@@ -309,13 +346,21 @@ func (m Model) View() string {
 	} else if m.message != "" {
 		b.WriteString(RenderSuccess(m.message, m.width))
 		b.WriteString("\n")
+	} else if m.restoring {
+		msg := fmt.Sprintf("Restoring connections... %d/%d", m.restoringCurrent, m.restoringTotal)
+		b.WriteString(RenderLoading(msg))
+		b.WriteString("\n")
 	} else if m.loading {
 		b.WriteString(RenderLoading("Loading..."))
 		b.WriteString("\n")
 	}
 
-	// Help
-	b.WriteString(RenderHelp(m.viewName()))
+	// Help (show limited help during restoration)
+	if m.restoring {
+		b.WriteString(RenderHelp("restoring"))
+	} else {
+		b.WriteString(RenderHelp(m.viewName()))
+	}
 
 	return b.String()
 }
@@ -994,10 +1039,17 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 		return
 	}
 
-	ctx := context.Background()
-	changed := false
+	total := len(state.Connections)
 	
-	for _, saved := range state.Connections {
+	// Signal restoration started
+	p.Send(restorationStarted{total: total})
+	
+	ctx := context.Background()
+	
+	for i, saved := range state.Connections {
+		// Update progress
+		p.Send(restorationProgress{current: i + 1, total: total})
+		
 		resourceType := portforward.ResourcePod
 		if saved.ResourceType == "service" {
 			resourceType = portforward.ResourceService
@@ -1006,7 +1058,6 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 		if !saved.WasActive {
 			// Restore as stopped - don't try to connect
 			pfManager.AddStoppedConnection(saved.Namespace, resourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
-			changed = true
 			continue
 		}
 		
@@ -1023,7 +1074,6 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 		if !available {
 			// Resource not available - add as stopped
 			pfManager.AddStoppedConnection(saved.Namespace, resourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
-			changed = true
 			continue
 		}
 		
@@ -1039,12 +1089,11 @@ func restorePreviousSession(k8sClient *k8s.Client, pfManager *portforward.Manage
 			// Failed - add as stopped
 			pfManager.AddStoppedConnection(saved.Namespace, resourceType, saved.ResourceName, saved.LocalPort, saved.RemotePort)
 		}
-		changed = true
 	}
 	
-	if changed {
-		p.Send(connectionsUpdated{})
-	}
+	// Signal restoration complete
+	p.Send(restorationComplete{})
+	p.Send(connectionsUpdated{})
 }
 
 // saveSessionState saves all connections to state file
