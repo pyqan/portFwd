@@ -1,7 +1,10 @@
 # Build artifacts
-portFwd
+/portFwd
 *.exe
-temp/*
+
+# Temp directory
+/temp/
+
 # IDE
 .idea/
 .vscode/
@@ -14,4 +17,3 @@ Thumbs.db
 
 # Articles (not for public repo)
 articles/
-temp/portFwd
