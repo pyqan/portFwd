@@ -200,8 +200,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Allow quit even during restoration
 		switch msg.String() {
 		case "ctrl+c", "q":
-			// Save state BEFORE stopping connections
-			saveSessionState(m.pfManager)
+			// Save state BEFORE stopping connections (but not during restoration)
+			if !m.restoring {
+				saveSessionState(m.pfManager)
+			}
 			// Then stop all connections
 			m.pfManager.StopAll()
 			return m, tea.Quit
