@@ -140,11 +140,17 @@ func NewModel(k8sClient *k8s.Client, pfManager *portforward.Manager, cfg *config
 	localInput.Placeholder = "8080"
 	localInput.CharLimit = 5
 	localInput.Width = 10
+	localInput.Cursor.Style = CursorStyle
+	localInput.TextStyle = InputStyle
+	localInput.PlaceholderStyle = PlaceholderStyle
 
 	remoteInput := textinput.New()
 	remoteInput.Placeholder = "80"
 	remoteInput.CharLimit = 5
 	remoteInput.Width = 10
+	remoteInput.Cursor.Style = CursorStyle
+	remoteInput.TextStyle = InputStyle
+	remoteInput.PlaceholderStyle = PlaceholderStyle
 
 	return Model{
 		k8sClient:       k8sClient,
@@ -334,9 +340,8 @@ func (m Model) renderContent(height int) string {
 
 	case ViewPortInput:
 		return RenderPortInput(
-			m.localPortInput.Value(),
-			m.remotePortInput.Value(),
-			m.focusedInput,
+			m.localPortInput,
+			m.remotePortInput,
 			m.width-4,
 		)
 

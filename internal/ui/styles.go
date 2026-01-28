@@ -88,13 +88,29 @@ var (
 			Foreground(ColorSecondary).
 			Bold(true)
 
-	// Input styles
+	// Input styles (for textinput component)
 	InputStyle = lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			Bold(true)
+
+	FocusedInputStyle = lipgloss.NewStyle().
+				Foreground(ColorPrimary).
+				Bold(true)
+
+	PlaceholderStyle = lipgloss.NewStyle().
+				Foreground(ColorMuted)
+
+	CursorStyle = lipgloss.NewStyle().
+			Foreground(ColorAccent).
+			Bold(true)
+
+	// Input container styles (for wrapping inputs)
+	InputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(ColorBorder).
 			Padding(0, 1)
 
-	FocusedInputStyle = lipgloss.NewStyle().
+	FocusedInputBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder()).
 				BorderForeground(ColorPrimary).
 				Padding(0, 1)

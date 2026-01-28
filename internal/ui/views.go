@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/pyqan/portFwd/internal/k8s"
@@ -292,43 +293,22 @@ func RenderConnectionList(connections []*portforward.Connection, selected int, w
 }
 
 // RenderPortInput renders port input form
-func RenderPortInput(localPort, remotePort string, focusedField int, width int) string {
+func RenderPortInput(localInput, remoteInput textinput.Model, width int) string {
 	var b strings.Builder
 
 	title := SubtitleStyle.Render("🔌 Configure Port Forward")
 	b.WriteString(title + "\n\n")
 
-	// Style for input values
-	inputValueStyle := lipgloss.NewStyle().
-		Foreground(ColorPrimary).
-		Bold(true)
-	
-	inputDimStyle := lipgloss.NewStyle().
-		Foreground(ColorTextDim)
-
-	cursorStyle := lipgloss.NewStyle().
-		Foreground(ColorAccent).
-		Bold(true)
-	
 	warningStyle := lipgloss.NewStyle().
 		Foreground(ColorWarning)
 
 	// Local port (on your machine)
 	localLabel := LabelStyle.Render("Local Port:  ")
 	localHint := lipgloss.NewStyle().Foreground(ColorMuted).Render(" (localhost)")
-	var localValue string
-	if focusedField == 0 {
-		localValue = inputValueStyle.Render(localPort) + cursorStyle.Render("█")
-	} else {
-		if localPort == "" {
-			localValue = inputDimStyle.Render("_____")
-		} else {
-			localValue = inputDimStyle.Render(localPort)
-		}
-	}
-	b.WriteString(localLabel + localValue + localHint + "\n")
+	b.WriteString(localLabel + localInput.View() + localHint + "\n")
 	
 	// Warning for privileged ports
+	localPort := localInput.Value()
 	if localPort != "" {
 		if port, err := strconv.Atoi(localPort); err == nil && port > 0 && port < 1024 {
 			b.WriteString(warningStyle.Render("   ⚠ Port < 1024 requires sudo") + "\n")
@@ -342,19 +322,10 @@ func RenderPortInput(localPort, remotePort string, focusedField int, width int) 
 	// Remote port (in pod/container)
 	remoteLabel := LabelStyle.Render("Remote Port: ")
 	remoteHint := lipgloss.NewStyle().Foreground(ColorMuted).Render(" (pod/container)")
-	var remoteValue string
-	if focusedField == 1 {
-		remoteValue = inputValueStyle.Render(remotePort) + cursorStyle.Render("█")
-	} else {
-		if remotePort == "" {
-			remoteValue = inputDimStyle.Render("_____")
-		} else {
-			remoteValue = inputDimStyle.Render(remotePort)
-		}
-	}
-	b.WriteString(remoteLabel + remoteValue + remoteHint + "\n\n")
+	b.WriteString(remoteLabel + remoteInput.View() + remoteHint + "\n\n")
 	
 	// Example
+	remotePort := remoteInput.Value()
 	if localPort != "" && remotePort != "" {
 		example := lipgloss.NewStyle().Foreground(ColorSecondary).Render(
 			fmt.Sprintf("   → localhost:%s  ➜  pod:%s", localPort, remotePort))
