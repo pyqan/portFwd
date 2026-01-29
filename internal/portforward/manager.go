@@ -226,7 +226,7 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 		// For service, we need to find a backing pod (like kubectl does)
 		conn.AddLog("Finding pod for service...")
 		logger.Debug("portforward", "Looking up service: %s/%s", conn.Namespace, conn.ResourceName)
-		
+
 		svc, err := m.clientset.CoreV1().Services(conn.Namespace).Get(ctx, conn.ResourceName, metav1.GetOptions{})
 		if err != nil {
 			conn.AddLog(fmt.Sprintf("✗ Service not found: %v", err))
@@ -240,7 +240,7 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 		}
 		conn.AddLog(fmt.Sprintf("Service: %s", svc.Name))
 		logger.Debug("portforward", "Service found: %s, Type: %s, ClusterIP: %s", svc.Name, svc.Spec.Type, svc.Spec.ClusterIP)
-		
+
 		// Find pod using service selector first (we need it to resolve named ports)
 		selector := svc.Spec.Selector
 		if len(selector) == 0 {
@@ -254,14 +254,14 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 			m.notifyChange()
 			return err
 		}
-		
+
 		var labelSelector []string
 		for k, v := range selector {
 			labelSelector = append(labelSelector, fmt.Sprintf("%s=%s", k, v))
 		}
 		selectorStr := strings.Join(labelSelector, ",")
 		logger.Debug("portforward", "Service selector: %s", selectorStr)
-		
+
 		pods, err := m.clientset.CoreV1().Pods(conn.Namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: selectorStr,
 		})
@@ -277,7 +277,7 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 			return err
 		}
 		logger.Debug("portforward", "Found %d pods matching selector", len(pods.Items))
-		
+
 		// Find first running pod
 		var runningPod *corev1.Pod
 		for i := range pods.Items {
@@ -290,7 +290,7 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 				break
 			}
 		}
-		
+
 		if podName == "" {
 			err := fmt.Errorf("no running pods found for service")
 			conn.AddLog(fmt.Sprintf("✗ %v", err))
@@ -302,12 +302,12 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 			m.notifyChange()
 			return err
 		}
-		
+
 		// Resolve targetPort from service spec
 		// TargetPort can be: number, named port, or empty (defaults to Port)
 		logger.Debug("portforward", "Resolving targetPort for service port %d", conn.RemotePort)
 		for _, port := range svc.Spec.Ports {
-			logger.Debug("portforward", "  Service port spec: Port=%d, TargetPort=%v, Protocol=%s", 
+			logger.Debug("portforward", "  Service port spec: Port=%d, TargetPort=%v, Protocol=%s",
 				port.Port, port.TargetPort, port.Protocol)
 			if int(port.Port) == conn.RemotePort {
 				if port.TargetPort.IntValue() != 0 {
@@ -321,7 +321,7 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 					logger.Debug("portforward", "  TargetPort is named: %s, resolving from pod spec...", namedPort)
 					for _, container := range runningPod.Spec.Containers {
 						for _, cp := range container.Ports {
-							logger.Debug("portforward", "    Container %s port: %s -> %d", 
+							logger.Debug("portforward", "    Container %s port: %s -> %d",
 								container.Name, cp.Name, cp.ContainerPort)
 							if cp.Name == namedPort {
 								targetPort = int(cp.ContainerPort)
@@ -453,7 +453,7 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 		conn.Status = StatusActive
 		conn.mu.Unlock()
 		m.notifyChange()
-		
+
 	case err := <-errChan:
 		conn.AddLog(fmt.Sprintf("✗ Forward error: %v", err))
 		logger.Error("portforward", "Tunnel failed during startup: %s - %v", conn.ID, err)
@@ -464,6 +464,16 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 		conn.mu.Unlock()
 		m.notifyChange()
 		return err
+
+	case <-conn.stopChan:
+		conn.AddLog("Stop signal received during startup")
+		logger.Debug("portforward", "Stop signal received during tunnel startup: %s", conn.ID)
+		return nil
+
+	case <-ctx.Done():
+		conn.AddLog("Context cancelled during startup")
+		logger.Debug("portforward", "Context cancelled during tunnel startup: %s", conn.ID)
+		return ctx.Err()
 	}
 
 	// Wait for forward to complete, stop signal, or context cancellation
@@ -487,7 +497,20 @@ func (m *Manager) runPortForward(ctx context.Context, conn *Connection) error {
 		conn.mu.Unlock()
 		m.notifyChange()
 		return err
-		
+
+	case <-conn.stopChan:
+		// Stop signal received
+		conn.AddLog("Stop signal received")
+		logger.Debug("portforward", "Stop signal received for: %s", conn.ID)
+		conn.mu.Lock()
+		if conn.Status != StatusStopped {
+			conn.Status = StatusStopped
+			conn.StoppedAt = time.Now()
+		}
+		conn.mu.Unlock()
+		m.notifyChange()
+		return nil
+
 	case <-ctx.Done():
 		// Context cancelled - exit immediately
 		conn.AddLog("Shutting down...")
@@ -574,9 +597,13 @@ func (m *Manager) StopAll() {
 
 	logger.Debug("portforward", "Stopping %d connections...", len(connections))
 
-	// Stop all connections without notifying
+	// Use WaitGroup with timeout for graceful shutdown
+	var wg sync.WaitGroup
+
+	// Stop all connections
 	for _, conn := range connections {
 		conn.mu.Lock()
+		wasActive := conn.Status == StatusActive || conn.Status == StatusStarting
 		if conn.Status != StatusStopped {
 			conn.Status = StatusStopped
 			conn.StoppedAt = time.Now()
@@ -584,15 +611,40 @@ func (m *Manager) StopAll() {
 		}
 		conn.mu.Unlock()
 
+		// Cancel context first (this should unblock any API calls)
 		if conn.cancelFunc != nil {
 			conn.cancelFunc()
 		}
 
+		// Close stop channel
 		conn.stopOnce.Do(func() {
 			close(conn.stopChan)
 		})
+
+		// If connection was active, give it a moment to clean up
+		if wasActive {
+			wg.Add(1)
+			go func(c *Connection) {
+				defer wg.Done()
+				// Wait briefly for graceful cleanup
+				time.Sleep(100 * time.Millisecond)
+			}(conn)
+		}
 	}
-	logger.Info("portforward", "All connections stopped")
+
+	// Wait with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Info("portforward", "All connections stopped gracefully")
+	case <-time.After(2 * time.Second):
+		logger.Warn("portforward", "Timeout waiting for connections to stop, forcing exit")
+	}
 }
 
 // GetConnection returns a specific connection
@@ -612,12 +664,12 @@ func (m *Manager) GetConnections() []*Connection {
 	for _, conn := range m.connections {
 		result = append(result, conn)
 	}
-	
+
 	// Sort by StartedAt to maintain stable order
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].StartedAt.Before(result[j].StartedAt)
 	})
-	
+
 	return result
 }
 
